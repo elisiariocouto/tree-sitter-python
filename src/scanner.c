@@ -19,6 +19,7 @@ enum TokenType {
     CLOSE_BRACKET,
     CLOSE_BRACE,
     EXCEPT,
+    STRING_PREFIX
 };
 
 typedef enum {
@@ -86,6 +87,7 @@ typedef struct {
     Array(uint16_t) indents;
     Array(Delimiter) delimiters;
     bool inside_f_string;
+    bool prefix_processed;
 } Scanner;
 
 static inline void advance(TSLexer *lexer) { lexer->advance(lexer, false); }
@@ -298,7 +300,7 @@ bool tree_sitter_python_external_scanner_scan(void *payload, TSLexer *lexer, con
         }
     }
 
-    if (first_comment_indent_length == -1 && valid_symbols[STRING_START]) {
+    if (first_comment_indent_length == -1 && valid_symbols[STRING_START] && valid_symbols[STRING_PREFIX]) {
         Delimiter delimiter = new_delimiter();
 
         bool has_flags = false;
@@ -314,6 +316,19 @@ bool tree_sitter_python_external_scanner_scan(void *payload, TSLexer *lexer, con
             }
             has_flags = true;
             advance(lexer);
+        }
+
+        if (has_flags && (lexer->lookahead == '"' || lexer->lookahead == '\'' || lexer->lookahead == '`')) {
+            array_push(&scanner->delimiters, delimiter);
+            lexer->mark_end(lexer);
+            lexer->result_symbol = STRING_PREFIX;
+            scanner->prefix_processed = true;
+            return true;
+        }
+
+        if (scanner->prefix_processed) {
+            delimiter = array_pop(&scanner->delimiters);
+            scanner->prefix_processed = false;
         }
 
         if (lexer->lookahead == '`') {
